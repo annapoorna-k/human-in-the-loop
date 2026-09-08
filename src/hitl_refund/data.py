@@ -1,0 +1,7 @@
+DUMMY_CASES = [
+    {"case_id": "RF-1001", "customer_id": "CUS-101", "customer": "Ananya Rao", "email": "ananya@example.test", "account_status": "active", "order_id": "ORD-8101", "item": "Wireless headphones", "paid_amount": 3499.00, "reason": "Left speaker is not working", "days_since_purchase": 8, "delivery_status": "delivered"},
+    {"case_id": "RF-1002", "customer_id": "CUS-102", "customer": "Rohan Mehta", "email": "rohan@example.test", "account_status": "active", "order_id": "ORD-8102", "item": "Running shoes", "paid_amount": 2799.00, "reason": "Incorrect size delivered", "days_since_purchase": 5, "delivery_status": "delivered"},
+    {"case_id": "RF-1003", "customer_id": "CUS-103", "customer": "Meera Nair", "email": "meera@example.test", "account_status": "active", "order_id": "ORD-8103", "item": "Air fryer", "paid_amount": 8999.00, "reason": "Damaged during delivery", "days_since_purchase": 12, "delivery_status": "delivered"},
+    {"case_id": "RF-1004", "customer_id": "CUS-104", "customer": "Arjun Singh", "email": "arjun@example.test", "account_status": "review", "order_id": "ORD-8104", "item": "Smart watch", "paid_amount": 12499.00, "reason": "Battery drains rapidly", "days_since_purchase": 17, "delivery_status": "delivered"},
+    {"case_id": "RF-1005", "customer_id": "CUS-105", "customer": "Priya Shah", "email": "priya@example.test", "account_status": "active", "order_id": "ORD-8105", "item": "Cotton kurta", "paid_amount": 1299.00, "reason": "Color differs from listing", "days_since_purchase": 4, "delivery_status": "delivered"},
+]

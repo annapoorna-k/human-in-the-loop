@@ -1,0 +1,10 @@
+[project]
+name = "hitl-refund-agent"
+version = "1.0.0"
+description = "Human-in-the-loop multi-agent refund workflow"
+requires-python = ">=3.11,<3.13"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

@@ -1,0 +1,8 @@
+langgraph==1.2.10
+langchain-openai==1.4.1
+azure-cosmos==4.9.0
+psycopg[binary]==3.2.9
+python-dotenv==1.1.1
+pydantic==2.12.5
+pytest==8.4.2
+streamlit==1.52.2

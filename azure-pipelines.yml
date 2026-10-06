@@ -1,0 +1,542 @@
+trigger:
+branches:
+include:
+- main
+- feature
+
+pr:
+branches:
+include:
+- main
+
+variables:
+
+# ============================================================
+
+# AZURE
+
+# ============================================================
+
+azureServiceConnection: 'rgatpl-service-connection'
+
+resourceGroup: 'rg-human'
+aksCluster: 'aks-human'
+aksNamespace: 'hitl-refund'
+acrName: 'acrhuman'
+
+# ============================================================
+
+# CONTAINER IMAGE
+
+# ============================================================
+
+imageRepository: 'hitl-refund'
+imageTag: '$(Build.BuildId)'
+fullImageName: 'acrhuman.azurecr.io/hitl-refund:$(Build.BuildId)'
+
+# ============================================================
+
+# PYTHON
+
+# ============================================================
+
+pythonVersion: '3.11'
+
+stages:
+
+# ============================================================
+
+# STAGE 1 - BUILD & TEST
+
+# ============================================================
+
+* stage: Build
+  displayName: 'Build and Test'
+
+  jobs:
+
+  * job: BuildAndTest
+    displayName: 'Install Dependencies and Run Tests'
+
+    pool:
+    vmImage: 'ubuntu-latest'
+
+    steps:
+
+    * checkout: self
+      displayName: 'Checkout source code'
+
+    * task: UsePythonVersion@0
+      displayName: 'Use Python 3.11'
+      inputs:
+      versionSpec: '$(pythonVersion)'
+
+    * script: |
+      set -e
+
+      python --version
+      python -m pip install --upgrade pip
+
+      echo "Installing project dependencies..."
+
+      pip install -r requirements.txt
+
+      displayName: 'Install Python dependencies'
+
+    * script: |
+      set -e
+
+      export PYTHONPATH="$(Build.SourcesDirectory)/src"
+
+      echo "Running unit tests..."
+
+      pytest -v
+
+      displayName: 'Run unit tests'
+
+# ============================================================
+
+# STAGE 2 - SECURITY SCAN
+
+# ============================================================
+
+* stage: Security
+  displayName: 'Security Scan'
+
+  dependsOn: Build
+
+  condition: succeeded()
+
+  jobs:
+
+  * job: SecurityScan
+    displayName: 'Run Dependency Security Scan'
+
+    pool:
+    vmImage: 'ubuntu-latest'
+
+    steps:
+
+    * checkout: self
+      displayName: 'Checkout source code'
+
+    * task: UsePythonVersion@0
+      displayName: 'Use Python 3.11'
+      inputs:
+      versionSpec: '$(pythonVersion)'
+
+    * script: |
+      set -e
+
+      python --version
+      python -m pip install --upgrade pip
+
+      echo "Installing pip-audit..."
+
+      pip install pip-audit
+
+      echo "Running dependency security scan..."
+
+      pip-audit -r requirements.txt
+
+      displayName: 'Run pip-audit'
+
+# ============================================================
+
+# STAGE 3 - BUILD IMAGE IN AZURE CONTAINER REGISTRY
+
+# ============================================================
+
+* stage: Docker
+  displayName: 'Build and Push Image to ACR'
+
+  dependsOn: Security
+
+  condition: succeeded()
+
+  jobs:
+
+  * job: ACRBuild
+    displayName: 'Build Docker Image in ACR'
+
+    pool:
+    vmImage: 'ubuntu-latest'
+
+    steps:
+
+    * checkout: self
+      displayName: 'Checkout source code'
+
+    * task: AzureCLI@2
+      displayName: 'Build and Push Image to ACR'
+
+      inputs:
+      azureSubscription: '$(azureServiceConnection)'
+
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+
+      inlineScript: |
+
+      ```
+      set -e
+
+      echo "=========================================="
+      echo "AZURE / ACR INFORMATION"
+      echo "=========================================="
+
+      az account show --output table
+
+      echo ""
+      echo "ACR:"
+      echo "$(acrName)"
+
+      echo ""
+      echo "IMAGE:"
+      echo "$(fullImageName)"
+
+      echo ""
+      echo "=========================================="
+      echo "BUILDING IMAGE IN ACR"
+      echo "=========================================="
+
+      az acr build \
+        --registry "$(acrName)" \
+        --image "$(imageRepository):$(imageTag)" \
+        "$(Build.SourcesDirectory)"
+
+      echo ""
+      echo "=========================================="
+      echo "VERIFYING IMAGE"
+      echo "=========================================="
+
+      az acr repository show \
+        --name "$(acrName)" \
+        --image "$(imageRepository):$(imageTag)" \
+        --output table
+
+      echo ""
+      echo "ACR BUILD COMPLETED SUCCESSFULLY."
+      ```
+
+# ============================================================
+
+# STAGE 4 - DEPLOY TO AKS
+
+# ============================================================
+
+* stage: Deploy
+  displayName: 'Deploy to AKS'
+
+  dependsOn: Docker
+
+  condition: succeeded()
+
+  jobs:
+
+  * deployment: DeployToAKS
+    displayName: 'Deploy HITL Refund Application'
+
+    pool:
+    vmImage: 'ubuntu-latest'
+
+    environment: 'hitl-refund-production'
+
+    strategy:
+
+    runOnce:
+
+    ```
+    deploy:
+
+      steps:
+
+      - checkout: self
+        displayName: 'Checkout Kubernetes manifests'
+
+      - task: AzureCLI@2
+        displayName: 'Deploy Kubernetes Resources'
+
+        inputs:
+          azureSubscription: '$(azureServiceConnection)'
+
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+
+          inlineScript: |
+
+            set -e
+
+            echo "=========================================="
+            echo "GET AKS CREDENTIALS"
+            echo "=========================================="
+
+            az aks get-credentials \
+              --resource-group "$(resourceGroup)" \
+              --name "$(aksCluster)" \
+              --overwrite-existing
+
+            echo ""
+            echo "=========================================="
+            echo "KUBERNETES CLUSTER"
+            echo "=========================================="
+
+            kubectl cluster-info
+
+            echo ""
+            echo "=========================================="
+            echo "VERIFY NAMESPACE"
+            echo "=========================================="
+
+            kubectl get namespace "$(aksNamespace)"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY SERVICE ACCOUNT"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/serviceaccount.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY SECRET PROVIDER CLASS"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/secretproviderclass.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY CONFIGMAP"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/configmap.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY SERVICE"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/service.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY INGRESS"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/ingress.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "APPLY DEPLOYMENT"
+            echo "=========================================="
+
+            kubectl apply \
+              -f "$(Build.SourcesDirectory)/k8s/deployment.yml"
+
+            echo ""
+            echo "=========================================="
+            echo "UPDATE APPLICATION IMAGE"
+            echo "=========================================="
+
+            kubectl set image \
+              deployment/hitl-refund \
+              hitl-refund="$(fullImageName)" \
+              -n "$(aksNamespace)"
+
+            echo ""
+            echo "=========================================="
+            echo "WAIT FOR ROLLOUT"
+            echo "=========================================="
+
+            kubectl rollout status \
+              deployment/hitl-refund \
+              -n "$(aksNamespace)" \
+              --timeout=180s
+
+            echo ""
+            echo "DEPLOYMENT COMPLETED SUCCESSFULLY."
+    ```
+
+# ============================================================
+
+# STAGE 5 - VERIFY DEPLOYMENT
+
+# ============================================================
+
+* stage: Verify
+  displayName: 'Verify AKS Deployment'
+
+  dependsOn: Deploy
+
+  condition: succeeded()
+
+  jobs:
+
+  * job: VerifyDeployment
+    displayName: 'Verify Application Deployment'
+
+    pool:
+    vmImage: 'ubuntu-latest'
+
+    steps:
+
+    * checkout: self
+      displayName: 'Checkout source code'
+
+    * task: AzureCLI@2
+      displayName: 'Verify AKS Application'
+
+      inputs:
+      azureSubscription: '$(azureServiceConnection)'
+
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+
+      inlineScript: |
+
+      ```
+      set -e
+
+      echo "=========================================="
+      echo "GET AKS CREDENTIALS"
+      echo "=========================================="
+
+      az aks get-credentials \
+        --resource-group "$(resourceGroup)" \
+        --name "$(aksCluster)" \
+        --overwrite-existing
+
+      echo ""
+      echo "=========================================="
+      echo "PODS"
+      echo "=========================================="
+
+      kubectl get pods \
+        -n "$(aksNamespace)" \
+        -o wide
+
+      echo ""
+      echo "=========================================="
+      echo "DEPLOYMENT"
+      echo "=========================================="
+
+      kubectl get deployment \
+        hitl-refund \
+        -n "$(aksNamespace)"
+
+      echo ""
+      echo "=========================================="
+      echo "SERVICE"
+      echo "=========================================="
+
+      kubectl get service \
+        hitl-refund \
+        -n "$(aksNamespace)"
+
+      echo ""
+      echo "=========================================="
+      echo "ENDPOINTS"
+      echo "=========================================="
+
+      kubectl get endpoints \
+        hitl-refund \
+        -n "$(aksNamespace)"
+
+      echo ""
+      echo "=========================================="
+      echo "INGRESS"
+      echo "=========================================="
+
+      kubectl get ingress \
+        hitl-refund \
+        -n "$(aksNamespace)" \
+        -o wide
+
+      echo ""
+      echo "=========================================="
+      echo "ROLLOUT STATUS"
+      echo "=========================================="
+
+      kubectl rollout status \
+        deployment/hitl-refund \
+        -n "$(aksNamespace)" \
+        --timeout=180s
+
+      echo ""
+      echo "=========================================="
+      echo "APPLICATION IMAGE"
+      echo "=========================================="
+
+      kubectl get deployment hitl-refund \
+        -n "$(aksNamespace)" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+      echo ""
+
+      echo ""
+      echo "=========================================="
+      echo "GET INGRESS IP"
+      echo "=========================================="
+
+      PUBLIC_IP=$(kubectl get ingress hitl-refund \
+        -n "$(aksNamespace)" \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+      echo "Ingress IP: $PUBLIC_IP"
+
+      if [ -z "$PUBLIC_IP" ]; then
+        echo "ERROR: Ingress public IP was not assigned."
+        exit 1
+      fi
+
+      echo ""
+      echo "=========================================="
+      echo "STREAMLIT HEALTH CHECK"
+      echo "=========================================="
+
+      echo "Testing:"
+      echo "http://${PUBLIC_IP}/_stcore/health"
+
+      for i in {1..12}; do
+
+        if curl -fsS \
+          "http://${PUBLIC_IP}/_stcore/health"; then
+
+          echo ""
+          echo ""
+          echo "=========================================="
+          echo "APPLICATION HEALTH CHECK PASSED"
+          echo "=========================================="
+
+          exit 0
+
+        fi
+
+        echo ""
+        echo "Health check attempt $i failed."
+        echo "Waiting 10 seconds..."
+
+        sleep 10
+
+      done
+
+      echo ""
+      echo "=========================================="
+      echo "APPLICATION HEALTH CHECK FAILED"
+      echo "=========================================="
+
+      echo ""
+      echo "Application logs:"
+      kubectl logs \
+        deployment/hitl-refund \
+        -n "$(aksNamespace)" \
+        --tail=100
+
+      exit 1
+      ```
+

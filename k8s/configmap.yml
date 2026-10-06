@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hitl-refund-config
+  namespace: hitl-refund
+
+data:
+  STORAGE_BACKEND: "cosmos"
+  COSMOS_DATABASE: "cosmos-humandb"
+  COSMOS_CONTAINER: "workflow-records"
+  COSMOS_ENDPOINT: "https://cosmosdb-human.documents.azure.com:443/"
+
+  AUDIT_BACKEND: "postgres"
+
+  OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1"
+  OPENROUTER_MODEL: "openai/gpt-4o-mini"

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hitl-refund
+  namespace: hitl-refund
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: hitl-refund
+
+  template:
+    metadata:
+      labels:
+        app: hitl-refund
+        azure.workload.identity/use: "true"
+
+    spec:
+      serviceAccountName: hitl-refund-sa
+
+      containers:
+        - name: hitl-refund
+          image: acrhuman.azurecr.io/hitl-refund:v1
+          imagePullPolicy: Always
+
+          ports:
+            - name: streamlit
+              containerPort: 8501
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: hitl-refund-config
+
+            - secretRef:
+                name: hitl-refund-secrets
+
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: hitl-refund-secrets
